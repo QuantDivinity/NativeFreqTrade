@@ -183,7 +183,7 @@ class GRUFreqaiModel(BaseFreqaiModel):
         for epoch in range(self.epochs):
             epoch_loss = 0.0
             processed_batches = 0
-            for i, (batch_x, batch_y) in enumerate(train_loader):
+            for i, (batch_x, batch_y) in enumerate(train_loader): # Inner loop for batches
                 if batch_x.shape[0] == 0:
                     logger.warning(f"Skipping empty batch at epoch {epoch + 1}, batch index {i}")
                     continue
@@ -191,18 +191,32 @@ class GRUFreqaiModel(BaseFreqaiModel):
                 predictions = self.model(batch_x)
                 if predictions.shape != batch_y.shape:
                     logger.error(f"Shape mismatch! Predictions: {predictions.shape}, Batch Y: {batch_y.shape}")
-                    if predictions.numel() != batch_y.numel():
-                        predictions = predictions.view_as(batch_y)
+                    if predictions.numel() != batch_y.numel(): # Check if total elements match
+                        try:
+                            predictions = predictions.view_as(batch_y)
+                        except RuntimeError as e:
+                             raise ValueError(f"Unrecoverable shape mismatch and view_as failed. Pred: {predictions.shape}, Labels: {batch_y.shape}. Error: {e}")
                     else:
-                        raise ValueError(f"Unrecoverable shape mismatch. Pred: {predictions.shape}, Labels: {batch_y.shape}")
+                        # This case (numel matches but shape doesn't, and view_as would fail) is less common for 1D outputs.
+                        # If batch_y is (N, 1) and predictions is (N), then unsqueeze predictions.
+                        if predictions.ndim == batch_y.ndim -1 and predictions.shape[0] == batch_y.shape[0] and batch_y.shape[1] == 1:
+                            predictions = predictions.unsqueeze(1)
+                            if predictions.shape != batch_y.shape: # Double check after potential fix
+                                raise ValueError(f"Shape mismatch after attempting unsqueeze. Pred: {predictions.shape}, Labels: {batch_y.shape}")
+                        else:
+                            raise ValueError(f"Unrecoverable shape mismatch. Pred: {predictions.shape}, Labels: {batch_y.shape}")
+
                 loss = self.criterion(predictions, batch_y)
                 loss.backward()
                 self.optimizer.step()
 
                 epoch_loss += loss.item()
                 processed_batches += 1
+            # End of inner loop (batch loop)
 
-          if processed_batches > 0:
+            # This block should be at the same indentation level as the inner loop's definition
+            # and epoch_loss = 0.0, processed_batches = 0
+            if processed_batches > 0:
                 avg_epoch_loss = epoch_loss / processed_batches
                 if (epoch + 1) % 10 == 0 or epoch == self.epochs - 1:
                     logger.info(f"Epoch [{epoch + 1}/{self.epochs}], Avg Loss: {avg_epoch_loss:.4f}")
