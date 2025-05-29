@@ -105,6 +105,20 @@ class GeneralTSNet(nn.Module):
             logger.error("NaN detected in tensor x2 (after GRU/Attention) in GeneralTSNet")
             raise ValueError("NaN detected in tensor x2 (after GRU/Attention) in GeneralTSNet")
 
+        # Apply Batch Normalization (self.bn2) then Dropout (self.dropout2)
+        # self.bn2 is nn.BatchNorm1d, expects input shape (N, C) or (N, C, L).
+        # x2 is expected to be (batch_size, hidden_num_effective), which is (N, C).
+        if self.bn2 is not None: # Check if bn2 was initialized
+            if x2.ndim == 2:
+                x2 = self.bn2(x2)
+            elif x2.ndim == 1 and x2.shape[0] > 0 : # Handle case of batch size 1 that might have been squeezed by mistake earlier
+                logger.warning("x2 was 1D for bn2, unsqueezing. This might indicate an issue if batch size > 1.")
+                x2 = self.bn2(x2.unsqueeze(0)).squeeze(0) # Apply bn1d and restore original if it was single sample
+            elif x2.shape[0] == 0: # Empty tensor
+                logger.warning("x2 is an empty tensor, skipping bn2.")
+            else: # x2.ndim > 2 or other unexpected shape
+                 logger.warning(f"x2 has unexpected shape {x2.shape} for bn2 (BatchNorm1d), skipping bn2 application.")
+        
         x2 = self.dropout2(x2)
         out = self.fc(x2)
         return out.squeeze(1) if out.size(1) == 1 else out
